@@ -1,0 +1,26 @@
+{
+  "name": "equalizer",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite --port 1420 --strictPort",
+    "build": "tsc --noEmit && vite build",
+    "tauri": "tauri"
+  },
+  "dependencies": {
+    "@radix-ui/react-context-menu": "^2.4.1",
+    "@radix-ui/react-select": "^2.4.1",
+    "@tauri-apps/api": "2.12.4",
+    "lucide-react": "^1.81.0",
+    "react": "18.3.1",
+    "react-dom": "18.3.1"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "2.12.4",
+    "@types/react": "18.3.31",
+    "@types/react-dom": "18.3.7",
+    "typescript": "5.9.3",
+    "vite": "8.3.8"
+  }
+}
