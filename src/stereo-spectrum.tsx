@@ -16,7 +16,7 @@ const colors = Array.from({ length: 101 }, (_, index) => {
   return low.map((value, channel) => Math.round(value + (high[channel] - value) * (at % 1)));
 });
 
-export function StereoSpectrogram({ bands }: { bands?: StereoBands | null }) {
+export function StereoSpectrogram({ bands, onDoubleClick }: { bands?: StereoBands | null; onDoubleClick?: () => void }) {
   const canvas = useRef<HTMLCanvasElement>(null);
   const column = useRef<ImageData>();
   useEffect(() => {
@@ -45,7 +45,7 @@ export function StereoSpectrogram({ bands }: { bands?: StereoBands | null }) {
   }, [bands]);
   return <figure className="stereo-spectrogram">
     <figcaption>Output spectrogram</figcaption>
-    <div className="stereo-plot">
+    <div className="stereo-plot" onDoubleClick={onDoubleClick} title={onDoubleClick ? "Double-click to enlarge" : undefined}>
       <div className="stereo-channels" aria-hidden="true"><span>L</span><span>R</span></div>
       <canvas ref={canvas} width={columns} height={rows} role="img"
         aria-label="Live left and right output spectrogram. Low frequencies at the bottom of each lane." />

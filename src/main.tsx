@@ -1,8 +1,8 @@
 import { invoke, isTauri } from "@tauri-apps/api/core";
 import { useEffect, useMemo, useRef, useState, type PointerEvent } from "react";
 import { createRoot } from "react-dom/client";
-import { Activity, AudioLines, ChartNoAxesColumn, Download, Headphones, Layers, Minimize2, MonitorCog, Plus, Power,
-  RefreshCw, Save, Settings2, SlidersHorizontal, Trash2, X } from "lucide-react";
+import { Activity, AudioLines, ChartNoAxesColumn, Download, Headphones, Layers, Minimize2, MonitorCog, Palette, Plus, Power,
+  RefreshCw, RotateCcw, Save, Settings2, SlidersHorizontal, Trash2, X } from "lucide-react";
 import { ContextActions, Dropdown, Knob, Modal } from "./controls";
 import { EffectRack, effectSpecs, type Effect, type Reductions } from "./effects";
 import type { StereoBands } from "./stereo-spectrum";
@@ -28,6 +28,16 @@ type Library = {
 type Device = { id: string; name: string };
 type Meter = { status: string; peak: [number, number]; spectrum: number[]; bass: number; compression?: Reductions;
   stereo?: StereoBands | null; scope?: StereoTrace | null };
+const builtinPresetNames = new Set([
+  "Acoustic & Jazz",
+  "Bass Boost",
+  "Electronic & Pop",
+  "Flat",
+  "Late Night",
+  "Vocal Clarity",
+  "Warm & Musical",
+  "Wide Soundstage",
+]);
 const flat: Settings = { tone: defaultTone, bands: [], bass: 0, treble: 0, gain: 0, pre_gain: 0, pan: 0, effects: [], bypass: false };
 const emptyLibrary: Library = { input: "", output: "", settings: flat, presets: {}, device_presets: {} };
 const noMeter: Meter = { status: "Waiting for audio", peak: [0, 0], spectrum: [], bass: 0 };
@@ -78,11 +88,11 @@ function spectrumPath(values: number[]) {
   }).join(" ");
 }
 
-function Graph({ bands, selected, select, change, add, remove, curves, spectrum, bypass, fast, range }: {
+function Graph({ bands, selected, select, change, add, remove, curves, spectrum, bypass, fast, range, colored }: {
   bands: Band[]; selected: number | null; select: (id: number | null) => void;
   change: (id: number, patch: Partial<Band>) => void; add: (hz: number, gain: number) => void;
   remove: (id: number) => void;
-  curves: Curves; spectrum: number[]; bypass: boolean; fast: boolean; range: number;
+  curves: Curves; spectrum: number[]; bypass: boolean; fast: boolean; range: number; colored: boolean;
 }) {
   const y = (db: number) => 12 + (range - clamp(db, -range, range)) / (2 * range) * (graphBottom - 12);
   const svg = useRef<SVGSVGElement>(null);
@@ -180,11 +190,11 @@ function Graph({ bands, selected, select, change, add, remove, curves, spectrum,
   };
   const targetBand = bands.find((band) => band.id === context.id);
   return <ContextActions items={targetBand ? [
-    { label: targetBand.enabled ? "Bypass band" : "Enable band", action: () => change(targetBand.id, { enabled: !targetBand.enabled }) },
-    { label: "Reset band gain and Q", action: () => change(targetBand.id, { gain: 0, q: 0.707 }) },
-    { label: "Remove band", action: () => remove(targetBand.id) },
-  ] : [{ label: "Add band here", disabled: bands.length >= 16, action: () => add(context.hz, context.gain) }]}>
-    <svg ref={svg} className={bypass ? "graph bypassed" : "graph"} viewBox={`0 0 ${width} ${height}`}
+    { label: targetBand.enabled ? "Bypass band" : "Enable band", icon: <Power aria-hidden="true" />, action: () => change(targetBand.id, { enabled: !targetBand.enabled }) },
+    { label: "Reset band gain and Q", icon: <RotateCcw aria-hidden="true" />, action: () => change(targetBand.id, { gain: 0, q: 0.707 }) },
+    { label: "Remove band", icon: <Trash2 aria-hidden="true" />, action: () => remove(targetBand.id) },
+  ] : [{ label: "Add band here", icon: <Plus aria-hidden="true" />, disabled: bands.length >= 16, action: () => add(context.hz, context.gain) }]}>
+    <svg ref={svg} className={`${bypass ? "graph bypassed" : "graph"}${colored ? " colored" : ""}`} viewBox={`0 0 ${width} ${height}`}
       preserveAspectRatio="none" aria-label="Frequency response"
       onContextMenu={(event) => {
         const node = (event.target as Element).closest("[data-band-id]");
@@ -203,6 +213,20 @@ function Graph({ bands, selected, select, change, add, remove, curves, spectrum,
           <stop stopColor="#8395ac" stopOpacity=".29" />
           <stop offset="1" stopColor="#8395ac" stopOpacity="0.025" />
         </linearGradient>
+        <linearGradient id="spectrum-color-fill" x1="0%" y1="0%" x2="100%" y2="0%">
+          <stop offset="0%" stopColor="#7b9cff" stopOpacity=".36" />
+          <stop offset="30%" stopColor="#6fe3c1" stopOpacity=".34" />
+          <stop offset="60%" stopColor="#8cd5ef" stopOpacity=".32" />
+          <stop offset="82%" stopColor="#f0c46c" stopOpacity=".34" />
+          <stop offset="100%" stopColor="#f38ba8" stopOpacity=".36" />
+        </linearGradient>
+        <linearGradient id="curve-color-stroke" x1="0%" y1="0%" x2="100%" y2="0%">
+          <stop offset="0%" stopColor="#92afff" />
+          <stop offset="30%" stopColor="#85f0cf" />
+          <stop offset="60%" stopColor="#a2e3f8" />
+          <stop offset="82%" stopColor="#f7d282" />
+          <stop offset="100%" stopColor="#fca5be" />
+        </linearGradient>
       </defs>
       {minorTicks.map((hz) => <line key={hz} className="grid minor" x1={x(hz)} x2={x(hz)} y1="12" y2={graphBottom} />)}
       {ticks.map((hz) => <g key={hz}><line className="grid" x1={x(hz)} x2={x(hz)} y1="12" y2={graphBottom} />
@@ -211,7 +235,8 @@ function Graph({ bands, selected, select, change, add, remove, curves, spectrum,
         <line className={db ? "grid" : "zero"} x1={inset} x2={width - inset} y1={y(db)} y2={y(db)} />
         <text transform={anchored(width - 3, y(db))} dy="0.35em" textAnchor="end">{db > 0 ? `+${db}` : db}</text>
       </g>)}
-      {spectrum.length > 0 && <path ref={spectrumShape} fill="url(#spectrum-fill)" className="spectrum" />}
+      {spectrum.length > 0 && <path ref={spectrumShape} fill={colored ? "url(#spectrum-color-fill)" : "url(#spectrum-fill)"}
+        stroke={colored ? "url(#curve-color-stroke)" : undefined} className="spectrum" />}
       {!bypass && curves.filter(([id]) => id < 0 || bands.some((band) => band.id === id && band.enabled)).map(([id, values]) => {
         const line = path(values, y);
         const ghost = id < 0;
@@ -223,7 +248,7 @@ function Graph({ bands, selected, select, change, add, remove, curves, spectrum,
           <path d={line} className="band-outline" vectorEffect="non-scaling-stroke" />
         </g>;
       })}
-      <path d={path(tone, y)} className="curve" vectorEffect="non-scaling-stroke" />
+      <path d={path(tone, y)} className="curve" stroke={colored && !bypass ? "url(#curve-color-stroke)" : undefined} vectorEffect="non-scaling-stroke" />
       {bands.map((band, index) => <g className={`node ${selected === band.id ? "selected" : ""} ${band.enabled ? "" : "disabled"}`}
         key={band.id} data-band-id={band.id} style={{ color: bandColor(band.id) }}
         transform={anchored(x(band.hz), y(hasGain(band.shape) ? band.gain : 0))}
@@ -268,6 +293,7 @@ function App() {
   const [eqRange, setEqRange] = useState(() => clamp(Number(localStorage.getItem("equalizer.eqRange") ?? 18) || 18, 6, 36));
   const [showMeters, setShowMeters] = useState(() => localStorage.getItem("equalizer.meters") !== "off");
   const [showSpectrum, setShowSpectrum] = useState(() => localStorage.getItem("equalizer.spectrum") !== "off");
+  const [graphColor, setGraphColor] = useState(() => localStorage.getItem("equalizer.graphColor") === "on");
   const [analyzerSpeed, setAnalyzerSpeed] = useState(() => localStorage.getItem("equalizer.analyzerSpeed") === "fast" ? "fast" : "smooth");
   const [restoreOptions, setRestoreOptions] = useState<Device[]>([]);
   const [speakerVolume, setSpeakerVolume] = useState<number | null>(null);
@@ -457,15 +483,26 @@ function App() {
   const outputChoices = choices(data.output, "");
   const selectOutput = (output: string) => selectRoute(data.input === output ? "" : data.input, output);
   const inputChoices = choices(data.input, data.output);
+  const presetNames = Object.keys(data.presets);
+  const userPresets = presetNames.filter((item) => !builtinPresetNames.has(item));
+  const builtinPresets = presetNames.filter((item) => builtinPresetNames.has(item));
+  const presetGroups = [
+    { label: "User presets", options: userPresets.map((item) => ({ value: item, label: item })) },
+    { label: "Built-in", options: builtinPresets.map((item) => ({ value: item, label: item })) },
+  ];
+  const headerPresetGroups = [
+    { options: [{ value: "__save__", label: "Save current…", icon: <Save aria-hidden="true" /> }] },
+    ...presetGroups,
+  ];
   const inputName = available.find(({ id }) => id === data.input)?.name;
   const defaultName = available.find(({ id }) => id === systemOutput)?.name;
   const notice = error && <div className="error" role="alert">{error}<button onClick={() => setError("")}>Dismiss</button></div>;
   return (
     <ContextActions items={[
-      { label: "Settings", action: () => setPreferences(true) },
-      { label: "Audio setup", action: () => setSetup(true) },
-      { label: mixer ? "Hide Mixer" : "Show Mixer", action: () => setMixer(!mixer) },
-      { label: rack ? "Hide Effects" : "Show Effects", action: () => setRack(!rack) },
+      { label: "Settings", icon: <Settings2 aria-hidden="true" />, action: () => setPreferences(true) },
+      { label: "Audio setup", icon: <MonitorCog aria-hidden="true" />, action: () => setSetup(true) },
+      { label: mixer ? "Hide Mixer" : "Show Mixer", icon: <SlidersHorizontal aria-hidden="true" />, action: () => setMixer(!mixer) },
+      { label: rack ? "Hide Effects" : "Show Effects", icon: <Layers aria-hidden="true" />, action: () => setRack(!rack) },
     ]}><main>
       <header className="header">
         <h1><button type="button" className="title-switch" aria-label={routingOn ? "Turn Equalizer off" : "Turn Equalizer on"}
@@ -474,12 +511,16 @@ function App() {
           <span className="title-action" aria-hidden="true"><Power />{routingOn ? "Turn off" : "Turn on"}</span>
         </button></h1>
         <div className="header-controls">
-          <Dropdown label="Listening output" placeholder="Speakers or headphones" icon={<Headphones aria-hidden="true" />} value={data.output} disabled={busy}
-            options={outputChoices} change={selectOutput} />
-          <Dropdown label="Preset" value={associated} disabled={busy}
-            options={Object.keys(data.presets).map((name) => ({ value: name, label: name }))}
-            change={(name) => void modify("preset", { name, save: null })} />
-          <button type="button" aria-haspopup="dialog" onClick={() => { setName(associated); setSave(true); }}><Save aria-hidden="true" />Save</button>
+          <div className="output-preset-group" role="group" aria-label="Listening output and preset">
+            <Dropdown label="Listening output" placeholder="Speakers or headphones" icon={<Headphones aria-hidden="true" />} value={data.output} disabled={busy}
+              options={outputChoices} change={selectOutput} />
+            <Dropdown label="Preset" value={associated} disabled={busy}
+              groups={headerPresetGroups}
+              change={(value) => {
+                if (value === "__save__") { setName(associated); setSave(true); }
+                else void modify("preset", { name: value, save: null });
+              }} />
+          </div>
           <button type="button" aria-label="Settings" aria-haspopup="dialog" onClick={() => setPreferences(true)}><Settings2 aria-hidden="true" /></button>
         </div>
       </header>
@@ -524,7 +565,7 @@ function App() {
           <Graph bands={settings.bands} selected={selected} select={setSelected} add={add} change={changeBand}
             remove={(id) => { edit({ bands: settings.bands.filter((item) => item.id !== id) }); setSelected(null); }}
             curves={curves} spectrum={showSpectrum && !data.suspended ? meter.spectrum : []} bypass={settings.bypass}
-            fast={analyzerSpeed === "fast"} range={eqRange} />
+            fast={analyzerSpeed === "fast"} range={eqRange} colored={graphColor} />
           {showMeters && <div className="meters" aria-label="Output levels">
             <div className="meter-tracks">
               {meter.peak.map((peak, channel) => {
@@ -619,6 +660,19 @@ function App() {
               disabled={busy} options={outputChoices} change={selectOutput} />
             {speakerVolume !== null && <Knob label="Speaker volume" min={0} max={100} step={1} reset={speakerVolume}
               value={speakerVolume} format={(level) => `${level}%`} change={changeSpeakerVolume} />}
+            <div className="device-presets">
+              <h3>Device presets</h3>
+              {available.filter(({ id }) => id !== data.input).map((device) => (
+                <div key={device.id} className="device-preset-row">
+                  <span title={device.name}>{device.name}</span>
+                  <Dropdown label={`Preset for ${device.name}`} placeholder="None"
+                    value={data.device_presets[device.id] || "__none__"}
+                    disabled={busy}
+                    groups={[{ options: [{ value: "__none__", label: "None" }] }, ...presetGroups]}
+                    change={(value) => void modify("assign_device_preset", { device: device.id, preset: value === "__none__" ? "" : value })} />
+                </div>
+              ))}
+            </div>
             <button onClick={() => { setPreferences(false); setSetup(true); }}><MonitorCog aria-hidden="true" />Audio setup</button>
             <button onClick={() => invoke("sound_settings").catch(report)}><Settings2 aria-hidden="true" />Windows sound settings</button>
             {notice}
@@ -628,6 +682,12 @@ function App() {
             <input type="checkbox" checked={showSpectrum} onChange={(event) => {
               setShowSpectrum(event.target.checked);
               localStorage.setItem("equalizer.spectrum", event.target.checked ? "on" : "off");
+            }} />
+          </label>
+          <label><Palette aria-hidden="true" />Show color in EQ graph
+            <input type="checkbox" checked={graphColor} onChange={(event) => {
+              setGraphColor(event.target.checked);
+              localStorage.setItem("equalizer.graphColor", event.target.checked ? "on" : "off");
             }} />
           </label>
           <div><Activity aria-hidden="true" />Analyzer response

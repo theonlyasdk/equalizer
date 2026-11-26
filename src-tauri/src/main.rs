@@ -51,6 +51,56 @@ struct App {
     library: Mutex<Library>,
     file: PathBuf,
     routing: Mutex<()>,
+    keep_in_tray_item: Mutex<Option<tauri::menu::CheckMenuItem<tauri::Wry>>>,
+}
+
+const STARTUP_KEY: &str = r"HKCU\Software\Microsoft\Windows\CurrentVersion\Run";
+const STARTUP_VALUE: &str = "Equalizer";
+
+fn startup_enabled() -> bool {
+    use std::os::windows::process::CommandExt;
+    const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+    std::process::Command::new("reg")
+        .args(["query", STARTUP_KEY, "/v", STARTUP_VALUE])
+        .creation_flags(CREATE_NO_WINDOW)
+        .output()
+        .map(|out| out.status.success())
+        .unwrap_or(false)
+}
+
+fn set_startup(enabled: bool) -> Result<(), String> {
+    use std::os::windows::process::CommandExt;
+    const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+    let status = if enabled {
+        let exe = std::env::current_exe().map_err(error)?;
+        let value = format!("\"{}\"", exe.display());
+        std::process::Command::new("reg")
+            .args([
+                "add",
+                STARTUP_KEY,
+                "/v",
+                STARTUP_VALUE,
+                "/t",
+                "REG_SZ",
+                "/d",
+                &value,
+                "/f",
+            ])
+            .creation_flags(CREATE_NO_WINDOW)
+            .status()
+            .map_err(error)?
+    } else {
+        std::process::Command::new("reg")
+            .args(["delete", STARTUP_KEY, "/v", STARTUP_VALUE, "/f"])
+            .creation_flags(CREATE_NO_WINDOW)
+            .status()
+            .map_err(error)?
+    };
+    if status.success() {
+        Ok(())
+    } else {
+        Err("Could not update Windows startup setting.".into())
+    }
 }
 
 impl App {
@@ -263,7 +313,13 @@ async fn disable_routing(
 
 #[tauri::command]
 fn set_close_behavior(app: State<App>, quit: bool) -> Result<(), String> {
-    app.update(|data| data.quit_on_close = quit).map(|_| ())
+    app.update(|data| data.quit_on_close = quit)?;
+    if let Ok(guard) = app.keep_in_tray_item.lock() {
+        if let Some(item) = guard.as_ref() {
+            let _ = item.set_checked(!quit);
+        }
+    }
+    Ok(())
 }
 
 #[tauri::command]
@@ -336,6 +392,37 @@ fn preset(app: State<App>, name: String, save: Option<Settings>) -> Result<Libra
 }
 
 #[tauri::command]
+fn assign_device_preset(
+    app: State<App>,
+    device: String,
+    preset: String,
+) -> Result<Library, String> {
+    if device.trim().is_empty() {
+        return Err("Select an audio device.".into());
+    }
+    let name = preset.trim();
+    if name.is_empty() {
+        return app.update(|data| {
+            data.device_presets.remove(&device);
+        });
+    }
+    let settings = app
+        .library
+        .lock()
+        .map_err(error)?
+        .presets
+        .get(name)
+        .cloned()
+        .ok_or_else(|| "Preset unavailable.".to_string())?;
+    app.update(|data| {
+        data.device_presets.insert(device.clone(), name.into());
+        if data.output == device {
+            data.settings = settings;
+        }
+    })
+}
+
+#[tauri::command]
 fn sound_settings() -> Result<(), String> {
     std::process::Command::new("explorer.exe")
         .arg("ms-settings:sound")
@@ -382,23 +469,41 @@ fn main() {
             library
                 .presets
                 .retain(|_, settings| settings.validate().is_ok());
+            seed_default_presets(&mut library);
             let audio = Audio::start(library.route(), library.settings.clone());
             app.manage(App {
                 audio,
-                library: Mutex::new(library),
+                library: Mutex::new(library.clone()),
                 file,
                 routing: Mutex::new(()),
+                keep_in_tray_item: Mutex::new(None),
             });
+            let keep_in_tray =
+                tauri::menu::CheckMenuItemBuilder::with_id("keep_in_tray", "Keep in tray")
+                    .checked(!library.quit_on_close)
+                    .build(app)?;
+            let open_at_startup =
+                tauri::menu::CheckMenuItemBuilder::with_id("open_at_startup", "Open at startup")
+                    .checked(startup_enabled())
+                    .build(app)?;
+            if let Ok(mut guard) = app.state::<App>().keep_in_tray_item.lock() {
+                *guard = Some(keep_in_tray.clone());
+            }
             let menu = tauri::menu::MenuBuilder::new(app)
                 .text("open", "Open Equalizer")
                 .text("sound", "Windows sound settings")
                 .separator()
+                .item(&keep_in_tray)
+                .item(&open_at_startup)
+                .separator()
                 .text("quit", "Quit Equalizer")
                 .build()?;
+            let keep_in_tray_handle = keep_in_tray.clone();
+            let open_at_startup_handle = open_at_startup.clone();
             let mut tray = tauri::tray::TrayIconBuilder::new()
                 .tooltip("Equalizer")
                 .menu(&menu)
-                .on_menu_event(|app, event| match event.id().as_ref() {
+                .on_menu_event(move |app, event| match event.id().as_ref() {
                     "open" => {
                         if let Some(window) = app.get_webview_window("main") {
                             let _ = window.show();
@@ -407,6 +512,18 @@ fn main() {
                     }
                     "sound" => {
                         let _ = sound_settings();
+                    }
+                    "keep_in_tray" => {
+                        let checked = keep_in_tray_handle.is_checked().unwrap_or(true);
+                        let _ = app
+                            .state::<App>()
+                            .update(|data| data.quit_on_close = !checked);
+                    }
+                    "open_at_startup" => {
+                        let checked = open_at_startup_handle.is_checked().unwrap_or(false);
+                        if set_startup(checked).is_err() {
+                            let _ = open_at_startup_handle.set_checked(!checked);
+                        }
                     }
                     "quit" => {
                         let handle = app.clone();
@@ -468,11 +585,171 @@ fn main() {
             update_settings,
             response,
             preset,
+            assign_device_preset,
             sound_settings
         ])
         .run(tauri::generate_context!())
         .expect("Equalizer failed to start");
     unsafe {
         let _ = CloseHandle(mutex);
+    }
+}
+
+fn default_presets() -> Vec<(&'static str, Settings)> {
+    use dsp::{Band, Compressor, Effect, EffectKind, Saturation, Shape, Spatial, Tone};
+
+    let band = |id, shape, hz, gain, q| Band {
+        id,
+        shape,
+        hz,
+        gain,
+        q,
+        enabled: true,
+    };
+
+    vec![
+        ("Flat", Settings::default()),
+        (
+            "Warm & Musical",
+            Settings {
+                tone: Tone::default(),
+                bass: 2.5,
+                treble: -1.0,
+                bands: vec![
+                    band(1, Shape::Bell, 250., 1.5, 0.8),
+                    band(2, Shape::Bell, 3200., -1.5, 1.4),
+                    band(3, Shape::HighShelf, 10000., 1.0, 0.707),
+                ],
+                ..Settings::default()
+            },
+        ),
+        (
+            "Bass Boost",
+            Settings {
+                tone: Tone::default(),
+                bass: 6.0,
+                treble: 0.5,
+                bands: vec![
+                    band(1, Shape::Bell, 60., 2.5, 0.9),
+                    band(2, Shape::Bell, 220., -1.5, 1.2),
+                ],
+                ..Settings::default()
+            },
+        ),
+        (
+            "Vocal Clarity",
+            Settings {
+                tone: Tone::default(),
+                bass: 0.0,
+                treble: 1.5,
+                bands: vec![
+                    band(1, Shape::LowCut, 80., 0.0, 0.707),
+                    band(2, Shape::Bell, 240., -2.0, 1.1),
+                    band(3, Shape::Bell, 2800., 3.0, 1.0),
+                    band(4, Shape::Bell, 6000., 1.5, 1.2),
+                ],
+                ..Settings::default()
+            },
+        ),
+        (
+            "Acoustic & Jazz",
+            Settings {
+                tone: Tone::default(),
+                bass: 1.5,
+                treble: 1.5,
+                bands: vec![
+                    band(1, Shape::Bell, 85., 1.5, 0.8),
+                    band(2, Shape::Bell, 500., -1.0, 1.0),
+                    band(3, Shape::Bell, 2500., 1.5, 0.9),
+                    band(4, Shape::HighShelf, 8500., 2.0, 0.707),
+                ],
+                ..Settings::default()
+            },
+        ),
+        (
+            "Electronic & Pop",
+            Settings {
+                tone: Tone::default(),
+                bass: 4.5,
+                treble: 2.5,
+                bands: vec![
+                    band(1, Shape::LowShelf, 90., 2.0, 0.707),
+                    band(2, Shape::Bell, 550., -2.0, 0.9),
+                    band(3, Shape::Bell, 3500., 2.0, 1.0),
+                    band(4, Shape::HighShelf, 10000., 2.0, 0.707),
+                ],
+                ..Settings::default()
+            },
+        ),
+        (
+            "Late Night",
+            Settings {
+                tone: Tone::default(),
+                bass: 1.5,
+                treble: 0.5,
+                bands: vec![band(1, Shape::LowCut, 35., 0.0, 0.707)],
+                effects: vec![Effect {
+                    id: 1,
+                    kind: EffectKind::Compressor,
+                    amount: -22.0,
+                    enabled: true,
+                    compressor: Compressor {
+                        ratio: 3.0,
+                        attack: 8.0,
+                        release: 160.0,
+                        knee: 6.0,
+                        makeup: 2.5,
+                        mix: 100.0,
+                        rms: true,
+                        auto_makeup: false,
+                    },
+                    saturation: Saturation::default(),
+                    spatial: Spatial::default(),
+                }],
+                ..Settings::default()
+            },
+        ),
+        (
+            "Wide Soundstage",
+            Settings {
+                tone: Tone::default(),
+                bass: 2.0,
+                treble: 1.0,
+                effects: vec![Effect {
+                    id: 1,
+                    kind: EffectKind::SpatialExpander,
+                    amount: 35.0,
+                    enabled: true,
+                    compressor: Compressor::default(),
+                    saturation: Saturation::default(),
+                    spatial: Spatial {
+                        bass_hz: 150.0,
+                        ambience: 20.0,
+                    },
+                }],
+                ..Settings::default()
+            },
+        ),
+    ]
+}
+
+fn seed_default_presets(library: &mut Library) {
+    for (name, settings) in default_presets() {
+        library.presets.entry(name.into()).or_insert(settings);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn default_presets_are_valid_and_seeded() {
+        let mut library = Library::default();
+        seed_default_presets(&mut library);
+        assert_eq!(library.presets.len(), default_presets().len());
+        for (name, settings) in &library.presets {
+            assert!(settings.validate().is_ok(), "invalid preset: {name}");
+        }
     }
 }

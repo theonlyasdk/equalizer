@@ -1,5 +1,6 @@
-import { ArrowDown, ArrowUp, AudioLines, AudioWaveform, ChartNoAxesColumn, ChevronDown, GripVertical, Maximize2, MoveHorizontal, Plus, Power, Volume2, Waves, X } from "lucide-react";
+import { ArrowDown, ArrowUp, AudioLines, AudioWaveform, ChartNoAxesColumn, ChevronDown, GripVertical, Maximize2, Minimize2, MoveHorizontal, Plus, Power, Trash2, Volume2, Waves, X } from "lucide-react";
 import { useEffect, useId, useLayoutEffect, useRef, useState, type PointerEvent } from "react";
+import { createPortal } from "react-dom";
 import { ContextActions, Dropdown, Knob } from "./controls";
 import { StereoSpectrogram, type StereoBands } from "./stereo-spectrum";
 import { StereoScope, type StereoTrace } from "./stereo-scope";
@@ -155,6 +156,15 @@ export function EffectRack({ effects, add, change, move, remove, reductions, ste
   trace?: StereoTrace | null;
 }) {
   const [collapsed, setCollapsed] = useState<number[]>([]);
+  const [enlarged, setEnlarged] = useState<{ kind: "vectorscope"; effectId: number; max: number } | { kind: "spectrogram"; effectId: number } | null>(null);
+  useEffect(() => {
+    if (!enlarged) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setEnlarged(null);
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [enlarged]);
   const chain = useRef<HTMLDivElement>(null);
   const before = useRef<Map<string, number> | null>(null);
   const liftedId = useRef<string | undefined>();
@@ -262,11 +272,11 @@ export function EffectRack({ effects, add, change, move, remove, reductions, ste
         const reduction = reductions.find(([id]) => id === effect.id)?.[1] ?? 0;
         const config = { ...defaults, ...effect.compressor };
         return <ContextActions key={effect.id} items={[
-          { label: effect.enabled ? "Bypass effect" : "Enable effect", action: () => change(effect.id, { enabled: !effect.enabled }) },
-          { label: hidden ? "Expand effect" : "Collapse effect", action: toggle },
-          { label: "Move up", action: () => move(index, -1), disabled: index === 0 },
-          { label: "Move down", action: () => move(index, 1), disabled: index === effects.length - 1 },
-          { label: "Remove effect", action: () => remove(effect.id) },
+          { label: effect.enabled ? "Bypass effect" : "Enable effect", icon: <Power aria-hidden="true" />, action: () => change(effect.id, { enabled: !effect.enabled }) },
+          { label: hidden ? "Expand effect" : "Collapse effect", icon: hidden ? <Maximize2 aria-hidden="true" /> : <Minimize2 aria-hidden="true" />, action: toggle },
+          { label: "Move up", icon: <ArrowUp aria-hidden="true" />, action: () => move(index, -1), disabled: index === 0 },
+          { label: "Move down", icon: <ArrowDown aria-hidden="true" />, action: () => move(index, 1), disabled: index === effects.length - 1 },
+          { label: "Remove effect", icon: <Trash2 aria-hidden="true" />, action: () => remove(effect.id) },
         ]}><section className={`rack-module ${effect.kind}`} data-effect={effect.id} aria-label={`${spec.name} effect ${index + 1}`}>
           <div className="module-top" onDoubleClick={(event) => {
             if (!(event.target as Element).closest("button")) toggle();
@@ -303,10 +313,11 @@ export function EffectRack({ effects, add, change, move, remove, reductions, ste
             <button type="button" className="rack-action" aria-label={`Remove ${spec.name}`} onClick={() => remove(effect.id)}><X aria-hidden="true" /></button>
           </div>
           {!hidden && isSpectrogram && <div className="stereo-effect" data-bypassed={!effect.enabled}>
-            <StereoSpectrogram bands={effect.enabled ? stereo : null} />
+            <StereoSpectrogram bands={effect.enabled ? stereo : null} onDoubleClick={() => setEnlarged({ kind: "spectrogram", effectId: effect.id })} />
           </div>}
           {!hidden && stereoEffect && <div className="stereo-effect" data-bypassed={!effect.enabled}>
-            <StereoScope trace={trace} maximum={spec.max} onAdjust={(amount) => change(effect.id, { amount })} />
+            <StereoScope trace={trace} maximum={spec.max} onAdjust={(amount) => change(effect.id, { amount })}
+              onDoubleClick={() => setEnlarged({ kind: "vectorscope", effectId: effect.id, max: spec.max })} />
             <div className="stereo-controls">
               <Knob label={spec.label} value={effect.amount} min={spec.min} max={spec.max} step={spec.step}
                 reset={spec.initial} format={(value) => `${value}%`} change={(amount) => change(effect.id, { amount })} />
@@ -353,5 +364,24 @@ export function EffectRack({ effects, add, change, move, remove, reductions, ste
         </section></ContextActions>;
       })}
     </div>
+    {enlarged && (() => {
+      const targetEffect = effects.find((item) => item.id === enlarged.effectId);
+      if (!targetEffect) return null;
+      return createPortal(
+        <div className="analyzer-spotlight" onClick={(event) => { if (event.target === event.currentTarget) setEnlarged(null); }}>
+          <div className="analyzer-spotlight-panel" data-bypassed={!targetEffect.enabled}>
+            {enlarged.kind === "vectorscope" ? (
+              <StereoScope trace={trace} maximum={enlarged.max}
+                onAdjust={(amount) => change(targetEffect.id, { amount })}
+                onDoubleClick={() => setEnlarged(null)} />
+            ) : (
+              <StereoSpectrogram bands={targetEffect.enabled ? stereo : null}
+                onDoubleClick={() => setEnlarged(null)} />
+            )}
+          </div>
+        </div>,
+        document.body,
+      );
+    })()}
   </aside>;
 }

@@ -6,10 +6,11 @@ const width = 240;
 const height = 138;
 const radius = height / 2 - 9;
 
-export function StereoScope({ trace, onAdjust, maximum }: {
+export function StereoScope({ trace, onAdjust, maximum, onDoubleClick }: {
   trace?: StereoTrace | null;
   onAdjust: (value: number) => void;
   maximum: number;
+  onDoubleClick?: () => void;
 }) {
   const canvas = useRef<HTMLCanvasElement>(null);
   useEffect(() => {
@@ -55,7 +56,8 @@ export function StereoScope({ trace, onAdjust, maximum }: {
         <text x="163" y="22" textAnchor="middle">L</text>
       </svg>
       <canvas ref={canvas} width={width} height={height} role="img"
-        title="Drag horizontally to adjust the effect amount" onPointerDown={adjust} onPointerMove={adjust}
+        title="Drag horizontally to adjust the effect amount. Double-click to enlarge."
+        onPointerDown={adjust} onPointerMove={adjust} onDoubleClick={onDoubleClick}
         aria-label="Live stereo vectorscope. Vertical traces indicate mono and horizontal traces indicate opposite phase." />
     </div>
   </figure>;

@@ -50,6 +50,31 @@ h2 { font-size: 24px; }
 .header { min-height: 62px; padding: 0 22px; border-bottom: 1px solid #2b3033; background: #17191c; }
 .header-controls { min-width: 0; }
 .header-controls .dropdown { max-width: min(30vw, 265px); }
+.output-preset-group {
+  display: inline-flex;
+  align-items: stretch;
+  min-width: 0;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: #202327;
+}
+.output-preset-group .dropdown {
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+}
+.output-preset-group .dropdown:first-child {
+  max-width: min(26vw, 240px);
+  border-top-left-radius: 5px;
+  border-bottom-left-radius: 5px;
+}
+.output-preset-group .dropdown:last-child {
+  max-width: min(20vw, 175px);
+  border-left: 1px solid var(--border);
+  border-top-right-radius: 5px;
+  border-bottom-right-radius: 5px;
+}
+.output-preset-group .dropdown:focus-visible { outline-offset: -2px; position: relative; z-index: 1; }
 .title-switch, .title-switch[aria-pressed="true"] {
   display: grid;
   justify-items: center;
@@ -110,6 +135,9 @@ h2 { font-size: 24px; }
 .grid, .zero { stroke: #30363b; vector-effect: non-scaling-stroke; }
 .grid.minor { stroke: #272c30; }
 .zero { stroke: #505a5f; }
+.graph.colored .band-fill { fill-opacity: .24; }
+.graph.colored .tone-ghost .band-fill { fill-opacity: .16; }
+.graph.colored .spectrum { stroke-opacity: .65; }
 .curve { stroke: #d5f9e9; stroke-width: 2; fill: none; pointer-events: none; }
 .bypassed .curve { stroke: #7d8991; }
 .spectrum { stroke: #74869b; stroke-width: 1; vector-effect: non-scaling-stroke; pointer-events: none; }
@@ -179,6 +207,13 @@ h2 { font-size: 24px; }
 .dropdown-item { display: flex; align-items: center; justify-content: space-between; gap: 14px; padding: 7px 9px; min-height: 29px; border-radius: 4px; outline: none; cursor: default; }
 .dropdown-item[data-highlighted] { background: #30383e; }
 .dropdown-item[data-state="checked"] { color: var(--accent); }
+.dropdown-separator { height: 1px; margin: 4px 6px; background: var(--border); }
+.dropdown-group-label { padding: 4px 9px 2px; color: var(--muted); font-size: 11px; font-weight: 500; }
+.device-presets { display: grid; gap: 8px; padding-top: 4px; border-top: 1px solid var(--border); }
+.device-presets h3 { margin: 0; font-size: 12px; font-weight: 500; color: var(--muted); }
+.device-preset-row { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.device-preset-row > span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; }
+.device-preset-row .dropdown { flex: 0 0 auto; max-width: 190px; }
 
 dialog { color: inherit; width: min(560px, calc(100% - 36px)); max-height: calc(100% - 36px); padding: 0; border: 1px solid #3b4148; border-radius: 12px; background: #1b1e22; box-shadow: 0 16px 64px #0008; }
 dialog::backdrop { background: #060809b8; }
@@ -285,6 +320,31 @@ dialog:has(.settings-layout) { width: min(600px, calc(100% - 36px)); height: min
 .stereo-controls .knob-control { min-width: 0; }
 .stereo-controls .knob-value { max-width: 100%; }
 .stereo-controls .knob-fill, .stereo-controls .knob-tick { stroke: var(--module-color); }
+.analyzer-spotlight {
+  position: fixed;
+  inset: 0;
+  z-index: 30;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: rgba(8, 10, 13, 0.72);
+  backdrop-filter: blur(10px);
+}
+.analyzer-spotlight-panel {
+  --module-color: #aab8f1;
+  width: min(84vw, 760px);
+}
+.analyzer-spotlight-panel[data-bypassed="true"] { opacity: .56; }
+.analyzer-spotlight-panel .stereo-spectrogram { margin: 0; }
+.analyzer-spotlight-panel .stereo-spectrogram figcaption { font-size: 12px; margin-bottom: 8px; }
+.analyzer-spotlight-panel .stereo-plot { grid-template-columns: 22px minmax(0, 1fr); border-radius: 8px; box-shadow: 0 20px 60px #000a; }
+.analyzer-spotlight-panel .stereo-channels { font-size: 11px; }
+.analyzer-spotlight-panel .stereo-plot canvas { height: min(56vh, 380px); }
+.analyzer-spotlight-panel .vectorscope-plot { border-radius: 8px; box-shadow: 0 20px 60px #000a; }
+@media (prefers-reduced-motion: no-preference) {
+  .analyzer-spotlight { animation: spotlight-in 160ms cubic-bezier(.23, 1, .32, 1) both; }
+  @keyframes spotlight-in { from { opacity: 0; } to { opacity: 1; } }
+}
 * { scrollbar-width: thin; scrollbar-color: #4d575e #171b1e; }
 @media (prefers-reduced-motion: reduce) {
   .rack-module[data-shifting] { transition: none; }

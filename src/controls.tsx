@@ -1,34 +1,45 @@
 import * as Select from "@radix-ui/react-select";
 import * as Menu from "@radix-ui/react-context-menu";
-import { Check, ChevronDown, X } from "lucide-react";
+import { Check, ChevronDown, Pencil, RotateCcw, X } from "lucide-react";
 import { createContext, useContext, useEffect, useId, useRef, useState, type ReactElement, type ReactNode } from "react";
 
 const ModalContainer = createContext<HTMLElement | null>(null);
 
 export function ContextActions({ children, items }: { children: ReactElement;
-  items: { label: string; action: () => void; disabled?: boolean }[] }) {
+  items: { label: string; action: () => void; disabled?: boolean; icon?: ReactNode }[] }) {
   const container = useContext(ModalContainer);
   return <Menu.Root>
     <Menu.Trigger asChild>{children}</Menu.Trigger>
     <Menu.Portal container={container ?? undefined}>
       <Menu.Content className="dropdown-menu context-menu" collisionPadding={8}>
-        {items.map(({ label, action, disabled }) => <Menu.Item key={label} className="dropdown-item"
-          disabled={disabled} onSelect={action}>{label}</Menu.Item>)}
+        {items.map(({ label, action, disabled, icon }) => <Menu.Item key={label} className="dropdown-item"
+          disabled={disabled} onSelect={action}><span className="dropdown-label">{icon}{label}</span></Menu.Item>)}
       </Menu.Content>
     </Menu.Portal>
   </Menu.Root>;
 }
 
-export function Dropdown({ label, placeholder = label, value, options, change, disabled, icon }: {
-  label: string; placeholder?: string; value: string; options: { value: string; label: string; icon?: ReactNode }[];
+type DropdownOption = { value: string; label: string; icon?: ReactNode };
+type DropdownGroup = { label?: string; options: DropdownOption[] };
+
+export function Dropdown({ label, placeholder = label, value, options = [], groups, change, disabled, icon }: {
+  label: string; placeholder?: string; value: string; options?: DropdownOption[]; groups?: DropdownGroup[];
   change: (value: string) => void; disabled?: boolean;
   icon?: ReactNode;
 }) {
   const container = useContext(ModalContainer);
-  return <Select.Root value={value} onValueChange={change} disabled={disabled || options.length === 0}>
+  const allOptions = groups ? groups.flatMap((group) => group.options) : options;
+  const active = allOptions.find((option) => option.value === value);
+  const renderOption = (option: DropdownOption) => (
+    <Select.Item className="dropdown-item" key={option.value} value={option.value}>
+      <span className="dropdown-label">{option.icon}<Select.ItemText>{option.label}</Select.ItemText></span>
+      <Select.ItemIndicator><Check size={14} aria-hidden="true" /></Select.ItemIndicator>
+    </Select.Item>
+  );
+  return <Select.Root value={value} onValueChange={change} disabled={disabled || allOptions.length === 0}>
     <Select.Trigger className="dropdown" aria-label={label}>
-      {options.find((option) => option.value === value)?.icon ?? icon}
-      <span className="dropdown-value" title={options.find((option) => option.value === value)?.label}>
+      {active?.icon ?? icon}
+      <span className="dropdown-value" title={active?.label}>
         <Select.Value placeholder={placeholder} />
       </span>
       <Select.Icon asChild><ChevronDown size={13} aria-hidden="true" /></Select.Icon>
@@ -36,10 +47,13 @@ export function Dropdown({ label, placeholder = label, value, options, change, d
     <Select.Portal container={container ?? undefined}>
       <Select.Content className="dropdown-menu" position="popper" sideOffset={5} collisionPadding={10}>
         <Select.Viewport>
-          {options.map((option) => <Select.Item className="dropdown-item" key={option.value} value={option.value}>
-            <span className="dropdown-label">{option.icon}<Select.ItemText>{option.label}</Select.ItemText></span>
-            <Select.ItemIndicator><Check size={14} aria-hidden="true" /></Select.ItemIndicator>
-          </Select.Item>)}
+          {groups ? groups.filter((group) => group.options.length > 0).map((group, index) => (
+            <Select.Group key={group.label ?? index}>
+              {index > 0 && <Select.Separator className="dropdown-separator" />}
+              {group.label && <Select.Label className="dropdown-group-label">{group.label}</Select.Label>}
+              {group.options.map(renderOption)}
+            </Select.Group>
+          )) : options.map(renderOption)}
         </Select.Viewport>
       </Select.Content>
     </Select.Portal>
@@ -82,8 +96,8 @@ export function Knob({ label, shortLabel = label, value, min, max, step, change,
     change(Math.min(max, Math.max(min, Number((Math.round(raw / step) * step).toFixed(6)))));
   };
   return <ContextActions items={[
-    { label: `Edit ${label}`, action: () => setDraft(String(value)) },
-    { label: `Reset ${label}`, action: () => change(reset) },
+    { label: `Edit ${label}`, icon: <Pencil aria-hidden="true" />, action: () => setDraft(String(value)) },
+    { label: `Reset ${label}`, icon: <RotateCcw aria-hidden="true" />, action: () => change(reset) },
   ]}><div className="knob-control">
     <div className="knob" role="slider" tabIndex={0} aria-label={label} aria-valuemin={min}
       aria-valuemax={max} aria-valuenow={value} aria-valuetext={format(value)}
